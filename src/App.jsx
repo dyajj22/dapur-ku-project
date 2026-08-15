@@ -111,38 +111,57 @@ export default function DapurTracker() {
   const [loading, setLoading] = useState(true);
   const [saveError, setSaveError] = useState("");
 
-  const [menu, setMenu] = useState(emptyMenu());
+  const [menusByWeek, setMenusByWeek] = useState({});
   const [budget, setBudget] = useState(500000);
   const [items, setItems] = useState([]);
   const [weekStart, setWeekStart] = useState(toISODate(mondayOf(new Date())));
 
   const loaded = useRef(false);
 
+  const menu = menusByWeek[weekStart] || emptyMenu();
+
   useEffect(() => {
     try {
-      const m = localStorage.getItem("weekly-menu");
-      const b = localStorage.getItem("weekly-budget");
-      const it = localStorage.getItem("shopping-items");
-      const ws = localStorage.getItem("week-start");
-      if (m) {
+      const mwRaw = localStorage.getItem("menus-by-week");
+      const legacyRaw = localStorage.getItem("weekly-menu");
+      const bRaw = localStorage.getItem("weekly-budget");
+      const itRaw = localStorage.getItem("shopping-items");
+      const wsRaw = localStorage.getItem("week-start");
+
+      let initialWeekStart = toISODate(mondayOf(new Date()));
+      if (wsRaw) {
         try {
-          setMenu(normalizeMenu(JSON.parse(m)));
+          const val = JSON.parse(wsRaw);
+          if (val) initialWeekStart = val;
         } catch {}
       }
-      if (b) {
+
+      if (mwRaw) {
         try {
-          setBudget(JSON.parse(b));
+          const parsed = JSON.parse(mwRaw);
+          const normalized = {};
+          Object.keys(parsed).forEach((wk) => {
+            normalized[wk] = normalizeMenu(parsed[wk]);
+          });
+          setMenusByWeek(normalized);
+        } catch {}
+      } else if (legacyRaw) {
+        try {
+          const parsedLegacy = normalizeMenu(JSON.parse(legacyRaw));
+          setMenusByWeek({ [initialWeekStart]: parsedLegacy });
         } catch {}
       }
-      if (it) {
+
+      setWeekStart(initialWeekStart);
+
+      if (bRaw) {
         try {
-          setItems(JSON.parse(it));
+          setBudget(JSON.parse(bRaw));
         } catch {}
       }
-      if (ws) {
+      if (itRaw) {
         try {
-          const val = JSON.parse(ws);
-          if (val) setWeekStart(val);
+          setItems(JSON.parse(itRaw));
         } catch {}
       }
     } catch (e) {
@@ -164,8 +183,8 @@ export default function DapurTracker() {
 
   useEffect(() => {
     if (!loaded.current) return;
-    persist("weekly-menu", menu);
-  }, [menu]);
+    persist("menus-by-week", menusByWeek);
+  }, [menusByWeek]);
 
   useEffect(() => {
     if (!loaded.current) return;
@@ -249,20 +268,33 @@ export default function DapurTracker() {
   const pct = budget > 0 ? Math.min(100, Math.round((total / budget) * 100)) : 0;
 
   function updateMealTitle(day, mealKey, title) {
-    setMenu((prev) => ({
-      ...prev,
-      [day]: { ...prev[day], [mealKey]: { ...prev[day][mealKey], title } },
-    }));
+    setMenusByWeek((prev) => {
+      const weekMenu = prev[weekStart] || emptyMenu();
+      return {
+        ...prev,
+        [weekStart]: {
+          ...weekMenu,
+          [day]: { ...weekMenu[day], [mealKey]: { ...weekMenu[day][mealKey], title } },
+        },
+      };
+    });
   }
 
   function toggleIngredient(day, mealKey, itemId) {
-    setMenu((prev) => {
-      const meal = prev[day][mealKey];
+    setMenusByWeek((prev) => {
+      const weekMenu = prev[weekStart] || emptyMenu();
+      const meal = weekMenu[day][mealKey];
       const has = meal.ingredients.includes(itemId);
       const ingredients = has
         ? meal.ingredients.filter((id) => id !== itemId)
         : [...meal.ingredients, itemId];
-      return { ...prev, [day]: { ...prev[day], [mealKey]: { ...meal, ingredients } } };
+      return {
+        ...prev,
+        [weekStart]: {
+          ...weekMenu,
+          [day]: { ...weekMenu[day], [mealKey]: { ...meal, ingredients } },
+        },
+      };
     });
   }
 
